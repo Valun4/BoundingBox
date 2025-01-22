@@ -62,23 +62,11 @@ void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder
     }
 	_inputs.Validate();
 
-    const FSceneViewFamily& ViewFamily = *_view.Family;
-    float ScreenPercentage = ViewFamily.SecondaryViewFraction;
-
-    if (ViewFamily.GetScreenPercentageInterface())
-    {
-        DynamicRenderScaling::TMap<float> UpperBounds = ViewFamily.GetScreenPercentageInterface()->GetResolutionFractionsUpperBound();
-        ScreenPercentage *= UpperBounds[GDynamicPrimaryResolutionFraction];
-    }
-
     const FIntRect viewRect = UE::FXRenderingUtils::GetRawViewRectUnsafe(_view);
-
     FGlobalShaderMap* GlobalShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
 
     TShaderMapRef<FBoundingBoxVS> VertexShader(GlobalShaderMap);
     check(VertexShader.IsValid());
-
-    // Shader Parameter Setup
     FBoundingBoxVSParams* VertexShaderParams = _graphBuilder.AllocParameters<FBoundingBoxVSParams>();
 
     FPixelShaderUtils::AddFullscreenPass(
@@ -96,18 +84,14 @@ void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder
     );
 
     FScreenPassTexture sceneColor((*_inputs.SceneTextures)->SceneColorTexture, viewRect);
-
     if (!sceneColor.IsValid())
     {
         return;
     }
-    const FScreenPassTextureViewport SceneColorTextureViewport(sceneColor);
 
+    const FScreenPassTextureViewport SceneColorTextureViewport(sceneColor);
     TShaderMapRef<FBoundingBoxPS> PixelShader(GlobalShaderMap);
     check(PixelShader.IsValid());
-
-    FScreenPassRenderTarget sceneColorRenderTargetCopy;
-    sceneColorRenderTargetCopy.Texture = _graphBuilder.CreateTexture((*_inputs.SceneTextures)->SceneColorTexture->Desc, TEXT("SceneColor"));
 
     FBoundingBoxPSParams* PixelShaderParams = _graphBuilder.AllocParameters<FBoundingBoxPSParams>();
     PixelShaderParams->viewParams = GetTextureViewportParameters(SceneColorTextureViewport);
