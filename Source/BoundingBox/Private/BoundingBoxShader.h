@@ -44,7 +44,7 @@ public:
 
 	static bool ShouldCache(EShaderPlatform Platform)
 	{
-		return true;
+		return false;
 	}
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& _parameters) { return true; }

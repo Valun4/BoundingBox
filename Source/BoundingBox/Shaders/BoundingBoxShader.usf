@@ -48,6 +48,8 @@ struct bbData
     }
 };
 
+//Note: For better result I would extend lines outwards to create polygons and check if position is inside it.
+//      Distance check is used here only because it was faster to write.
 float4 GetPixelColor(bbData _data[255], int _arrLen, float _distance, float2 _pos)
 {
     for (int i = 0; i < _arrLen; i++)
@@ -66,19 +68,12 @@ float4 GetPixelColor(bbData _data[255], int _arrLen, float _distance, float2 _po
 void BoundingBoxPS(in float4 InPosition : SV_Position,
                     out float4 OutColor : SV_Target0)
 {
-    float2 UVcoord = PosToUV(InPosition.xy);
-    
+    float2 UVcoord = PosToUV(InPosition.xy);    
     int arrLen = clamp(dataTexture[int2(0, 0)].r, 0, 255);
-    if (arrLen <= 0)
-    {
-        OutColor = float4(Texture2DSample(sceneColor, sceneColorSampler, UVcoord));
-        return;
-    }
-    
     int stride = 11;
     int beginOffset = 1;
     bbData bbDatas[255];
-
+    
     for (int i = 0; i < arrLen; i++)
     {
         bbData data;
@@ -92,7 +87,5 @@ void BoundingBoxPS(in float4 InPosition : SV_Position,
         bbDatas[i] = data;
     }
     
-    float4 col = GetPixelColor(bbDatas, arrLen, 0.002, UVcoord);
-
-    OutColor = col;
+    OutColor = GetPixelColor(bbDatas, arrLen, 0.002, UVcoord);
 }

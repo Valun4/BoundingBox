@@ -18,7 +18,7 @@ public:
 	FVector origin_ = FVector::Zero();
 	FVector extent_ = FVector::Zero();
 	FRotator initialRot = FRotator::ZeroRotator;
-	TArray<FVector> oBBvertices_ = {};
+	TArray<FVector> bBvertices_ = {};
 	TArray<FVector2D> sSvertices_ = {};
 	FLinearColor bbColor_ = FLinearColor::Green;
 
@@ -27,6 +27,9 @@ public:
     {
         if (actor_.IsValid())
         {
+			UStaticMeshComponent* comp = actor_.Pin()->GetComponentByClass<UStaticMeshComponent>();
+			FBoxSphereBounds data = comp->GetStaticMesh()->GetRenderData()->Bounds;
+
             actor_.Pin()->GetActorBounds(false, origin_, extent_, true);
 			initialRot = actor_->GetActorRotation();
         }
@@ -38,8 +41,8 @@ public:
 	{
 		if(IsValid())
 		{
-			UpdateObbVertices();
-			UpdateSsVertices();
+			UpdateBBVertices();
+			UpdateSSVertices();
 		}
 	}
 
@@ -48,7 +51,7 @@ public:
 		actor_ = nullptr;
 		origin_ = FVector::Zero();
 		extent_ = FVector::Zero();
-		oBBvertices_.Empty();
+		bBvertices_.Empty();
 		sSvertices_.Empty();
 	}
 
@@ -56,35 +59,38 @@ public:
 	inline bool operator==(const FBoundingBoxActor& _other) const { return actor_ == _other.actor_; }
 
 private:
-	void UpdateObbVertices()
+	//TODO: move this to Extension class instead of here so we have access to sceneview
+	//      so we can project to that instead of player controller view
+	//Also: Update to work with rotations
+	void UpdateBBVertices()
 	{
 		if(IsValid())
 		{
-			oBBvertices_.Empty();
+			bBvertices_.Empty();
 			
 			FVector right = actor_.Pin()->GetActorRightVector();
 			FVector up = actor_.Pin()->GetActorUpVector();
 			FVector forward = actor_.Pin()->GetActorForwardVector();
 			
-			oBBvertices_.Add(FVector(origin_ + right * extent_.X + forward * extent_.Y + up * extent_.Z));
-			oBBvertices_.Add(FVector(origin_ + -right * extent_.X + forward * extent_.Y + up * extent_.Z));
-			oBBvertices_.Add(FVector(origin_ + -right * extent_.X + -forward * extent_.Y + up * extent_.Z));
-			oBBvertices_.Add(FVector(origin_ + right * extent_.X + -forward * extent_.Y + up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + right * extent_.X + forward * extent_.Y + up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + -right * extent_.X + forward * extent_.Y + up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + -right * extent_.X + -forward * extent_.Y + up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + right * extent_.X + -forward * extent_.Y + up * extent_.Z));
 
-			oBBvertices_.Add(FVector(origin_ + right * extent_.X + forward * extent_.Y + -up * extent_.Z));
-			oBBvertices_.Add(FVector(origin_ + -right * extent_.X + forward * extent_.Y + -up * extent_.Z));
-			oBBvertices_.Add(FVector(origin_ + -right * extent_.X + -forward * extent_.Y + -up * extent_.Z));
-			oBBvertices_.Add(FVector(origin_ + right * extent_.X + -forward * extent_.Y + -up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + right * extent_.X + forward * extent_.Y + -up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + -right * extent_.X + forward * extent_.Y + -up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + -right * extent_.X + -forward * extent_.Y + -up * extent_.Z));
+			bBvertices_.Add(FVector(origin_ + right * extent_.X + -forward * extent_.Y + -up * extent_.Z));
 		}
 	}
 
-	void UpdateSsVertices()
+	void UpdateSSVertices()
 	{
 		APlayerController* playerController = UGameplayStatics::GetPlayerController(actor_.Pin()->GetWorld() ,0);
 		sSvertices_.Init(FVector2d::Zero(), 4);
 		TArray<FVector2D> tempVertices = {};
 
-		for(auto& vertex : oBBvertices_)
+		for(auto& vertex : bBvertices_)
 		{
 			FVector2D screenPos;
 			playerController->ProjectWorldLocationToScreen(vertex, screenPos, true);

@@ -40,6 +40,9 @@ void UBoundingBoxSubsystem::Deinitialize()
 		boundingBoxSVE_.Reset();
 		boundingBoxSVE_ = nullptr;
 	}
+
+	dataTexture_ = nullptr;
+
 	Super::Deinitialize();
 }
 

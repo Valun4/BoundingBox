@@ -18,7 +18,7 @@
 DEFINE_GPU_STAT(BoundingBoxPass)
 FBoundingBoxSceneViewExtension::FBoundingBoxSceneViewExtension(const FAutoRegister& _autoRegister) : FSceneViewExtensionBase(_autoRegister){}
 
-//copy paste from ColorCorrectRegionsSceneViewExtension.cpp
+//copy from ColorCorrectRegionsSceneViewExtension.cpp
 FScreenPassTextureViewportParameters GetTextureViewportParameters(const FScreenPassTextureViewport& InViewport)
 {
     const FVector2f Extent(InViewport.Extent);
@@ -54,7 +54,6 @@ FScreenPassTextureViewportParameters GetTextureViewportParameters(const FScreenP
 
     return Parameters;
 }
-
 void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& _graphBuilder, const FSceneView& _view, const FPostProcessingInputs& _inputs)
 {
     if(!dataTexture_.IsValid())
@@ -73,9 +72,6 @@ void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder
     }
 
     const FIntRect viewRect = UE::FXRenderingUtils::GetRawViewRectUnsafe(_view);
-
-    RDG_EVENT_SCOPE(_graphBuilder, "BoundingBoxPass");
-    RDG_GPU_STAT_SCOPE(_graphBuilder, BoundingBoxPass);
 
     FGlobalShaderMap* GlobalShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
 
@@ -107,7 +103,6 @@ void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder
     }
     const FScreenPassTextureViewport SceneColorTextureViewport(sceneColor);
 
-    // Create PS Shader ref
     TShaderMapRef<FBoundingBoxPS> PixelShader(GlobalShaderMap);
     check(PixelShader.IsValid());
 
@@ -121,9 +116,7 @@ void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder
 	PixelShaderParams->sceneColorSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 
     PixelShaderParams->RenderTargets[0] = FRenderTargetBinding(sceneColor.Texture, ERenderTargetLoadAction::ELoad);
-        
-    //ClearUnusedGraphResources(PixelShader, PixelShaderParams); // ???
-    
+
 	FPixelShaderUtils::AddFullscreenPass(
 		_graphBuilder,
 		GlobalShaderMap,
