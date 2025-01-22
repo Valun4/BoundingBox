@@ -1,0 +1,98 @@
+#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/ScreenPass.ush"
+#include "/Engine/Private/PostProcessCommon.ush"
+
+SCREEN_PASS_TEXTURE_VIEWPORT(viewParams)
+
+SamplerState sceneColorSampler;
+Texture2D dataTexture;
+Texture2D sceneColor;
+
+float2 PosToUV(float2 _pos)
+{
+    float2 viewportUV = ((_pos - viewParams_ViewportMin.xy) * viewParams_ViewportSizeInverse.xy);
+    return viewportUV * viewParams_UVViewportSize + viewParams_UVViewportMin;
+}
+
+float DistanceToLine(float2 _target, float2 _pointA, float2 _pointB)
+{
+    float2 lineAB = _pointB - _pointA;
+    float lenAB = length(lineAB);
+    float2 lineABNormalized = normalize(lineAB);
+    
+    float2 v = _target - _pointA;
+    float d = dot(v, lineABNormalized);
+    d = clamp(d, 0, lenAB);
+    
+    return distance(_pointA + lineABNormalized * d, _target);
+}
+
+void BoundingBoxVS(){}
+
+struct bbData
+{
+    float2 point1;
+    float2 point2;
+    float2 point3;
+    float2 point4;
+    float3 color;
+        
+    void init(float2 _point1, float2 _point2, float2 _point3, float2 _point4, float3 _color)
+    {
+        point1 = _point1;
+        point2 = _point2;
+        point3 = _point3;
+        point4 = _point4;
+        color = _color;
+    }
+};
+
+float4 GetPixelColor(bbData _data[255], int _arrLen, float _distance, float2 _pos)
+{
+    for (int i = 0; i < _arrLen; i++)
+    {
+        if (DistanceToLine(_pos, _data[i].point1, _data[i].point2) < _distance ||
+            DistanceToLine(_pos, _data[i].point2, _data[i].point3) < _distance ||
+            DistanceToLine(_pos, _data[i].point3, _data[i].point4) < _distance ||
+            DistanceToLine(_pos, _data[i].point4, _data[i].point1) < _distance)
+        {
+            return float4(_data[i].color, 1);
+        }
+    }
+    return float4(Texture2DSample(sceneColor, sceneColorSampler, _pos));
+}
+
+void BoundingBoxPS(in float4 InPosition : SV_Position,
+                    out float4 OutColor : SV_Target0)
+{
+    float2 UVcoord = PosToUV(InPosition.xy);
+    
+    int arrLen = clamp(dataTexture[int2(0, 0)].r, 0, 255);
+    if (arrLen <= 0)
+    {
+        OutColor = float4(Texture2DSample(sceneColor, sceneColorSampler, UVcoord));
+        return;
+    }
+    
+    int stride = 11;
+    int beginOffset = 1;
+    bbData bbDatas[255];
+
+    for (int i = 0; i < arrLen; i++)
+    {
+        bbData data;
+        data.init(PosToUV(float2(dataTexture[int2(beginOffset + 0 + i * stride, 0)].r, dataTexture[int2(beginOffset + 1 + i * stride, 0)].r)),
+                    PosToUV(float2(dataTexture[int2(beginOffset + 2 + i * stride, 0)].r, dataTexture[int2(beginOffset + 3 + i * stride, 0)].r)),
+                    PosToUV(float2(dataTexture[int2(beginOffset + 4 + i * stride, 0)].r, dataTexture[int2(beginOffset + 5 + i * stride, 0)].r)),
+                    PosToUV(float2(dataTexture[int2(beginOffset + 6 + i * stride, 0)].r, dataTexture[int2(beginOffset + 7 + i * stride, 0)].r)),
+                    float3(dataTexture[int2(beginOffset + 8 + i * stride, 0)].r,
+                            dataTexture[int2(beginOffset + 9 + i * stride, 0)].r,
+                            dataTexture[int2(beginOffset + 10 + i * stride, 0)].r));
+        bbDatas[i] = data;
+    }
+    
+    float4 col = GetPixelColor(bbDatas, arrLen, 0.002, UVcoord);
+
+    OutColor = col;
+}
