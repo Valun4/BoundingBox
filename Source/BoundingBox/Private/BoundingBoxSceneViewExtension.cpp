@@ -1,11 +1,11 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
+#include "BoundingBoxSceneViewExtension.h"
 
 #include "PixelShaderUtils.h"
 #include "FXRenderingUtils.h"
 #include "PostProcess/PostProcessInputs.h"
 
-#include "BoundingBoxSceneViewExtension.h"
 
 DEFINE_GPU_STAT(BoundingBoxPass)
 FBoundingBoxSceneViewExtension::FBoundingBoxSceneViewExtension(const FAutoRegister& _autoRegister) : FSceneViewExtensionBase(_autoRegister)
