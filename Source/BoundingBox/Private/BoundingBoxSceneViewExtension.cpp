@@ -1,24 +1,26 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-#include "BoundingBoxSceneViewExtension.h"
 
-#include "BoundingBoxShader.h"
-
-#include "ScreenPass.h"
 #include "PixelShaderUtils.h"
 #include "FXRenderingUtils.h"
-#include "DynamicResolutionState.h"
-#include "RenderGraphUtils.h"
-#include "CommonRenderResources.h"
-#include "SceneView.h"
-
-#include "PostProcess/PostProcessMaterialInputs.h"
 #include "PostProcess/PostProcessInputs.h"
 
-DEFINE_GPU_STAT(BoundingBoxPass)
-FBoundingBoxSceneViewExtension::FBoundingBoxSceneViewExtension(const FAutoRegister& _autoRegister) : FSceneViewExtensionBase(_autoRegister){}
+#include "BoundingBoxSceneViewExtension.h"
 
-//copy from ColorCorrectRegionsSceneViewExtension.cpp
+DEFINE_GPU_STAT(BoundingBoxPass)
+FBoundingBoxSceneViewExtension::FBoundingBoxSceneViewExtension(const FAutoRegister& _autoRegister) : FSceneViewExtensionBase(_autoRegister)
+{
+    //readback = new FRHIGPUBufferReadback("Bounding Box Info Readback");
+}
+
+FBoundingBoxSceneViewExtension::~FBoundingBoxSceneViewExtension()
+{
+    //delete readback;
+    //readback = nullptr;
+}
+
+
+//copy paste from ColorCorrectRegionsSceneViewExtension.cpp
 FScreenPassTextureViewportParameters GetTextureViewportParameters(const FScreenPassTextureViewport& InViewport)
 {
     const FVector2f Extent(InViewport.Extent);
@@ -54,27 +56,69 @@ FScreenPassTextureViewportParameters GetTextureViewportParameters(const FScreenP
 
     return Parameters;
 }
+
+
 void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& _graphBuilder, const FSceneView& _view, const FPostProcessingInputs& _inputs)
 {
-    if(!dataTexture_.IsValid())
+    if (!bDrawAllowed) { return; }
+
+    FGlobalShaderMap* GlobalShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
+
+    const FSceneViewFamily& ViewFamily = *_view.Family;
+    const FIntRect viewRect = UE::FXRenderingUtils::GetRawViewRectUnsafe(_view);
+
+#pragma region Compute Shader
+
+    if (boundingBoxCount == 0)
     {
         return;
     }
-	_inputs.Validate();
 
-    const FIntRect viewRect = UE::FXRenderingUtils::GetRawViewRectUnsafe(_view);
-    FGlobalShaderMap* GlobalShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
+    //compute shader buffers
+    FRDGBufferRef boundingBoxDataBuffer = nullptr;
+    FRDGBufferUAVRef boundingBoxDataBufferUAV = nullptr;
 
-    TShaderMapRef<FBoundingBoxVS> VertexShader(GlobalShaderMap);
-    check(VertexShader.IsValid());
-    FBoundingBoxVSParams* VertexShaderParams = _graphBuilder.AllocParameters<FBoundingBoxVSParams>();
+    const FRDGBufferDesc boundingBoxDataDesc = FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector4), boundingBoxCount);
+    boundingBoxDataBuffer = _graphBuilder.CreateBuffer(boundingBoxDataDesc, TEXT("Bounding Box Count Buffer"));
+    boundingBoxDataBufferUAV = _graphBuilder.CreateUAV(boundingBoxDataBuffer);
 
+    //create CS params
+    FBoundingBoxCS::FParameters* computeShaderParams = _graphBuilder.AllocParameters<FBoundingBoxCS::FParameters>();
+    computeShaderParams->customStencil = (*_inputs.SceneTextures)->CustomStencilTexture;
+    computeShaderParams->boundingBoxCount = boundingBoxCount;
+    computeShaderParams->boundingBoxDataBuffer = boundingBoxDataBufferUAV;
+    
+    const FIntPoint threadCount = 1;
+    const FIntVector groupCount = FComputeShaderUtils::GetGroupCount(1, FIntPoint(1, 1));
+
+    FComputeShaderUtils::AddPass(_graphBuilder,
+        RDG_EVENT_NAME("Get bounding box data from stencil buffer"),
+        ERDGPassFlags::Compute,
+        TShaderMapRef<FBoundingBoxCS>(GlobalShaderMap),
+        computeShaderParams,
+        groupCount);
+
+#pragma endregion
+#pragma region Pixel Shader
+
+    FScreenPassTexture sceneColor((*_inputs.SceneTextures)->SceneColorTexture, viewRect);
+
+    const FScreenPassTextureViewport SceneColorTextureViewport(sceneColor);
+
+    FBoundingBoxPSParams* PixelShaderParams = _graphBuilder.AllocParameters<FBoundingBoxPSParams>();
+    PixelShaderParams->viewParams = GetTextureViewportParameters(SceneColorTextureViewport);
+    PixelShaderParams->sceneColor = (*_inputs.SceneTextures)->SceneColorTexture;
+    PixelShaderParams->sceneColorSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+    PixelShaderParams->boundingBoxDataBuffer = boundingBoxDataBufferUAV;
+    PixelShaderParams->boundingBoxCount = boundingBoxCount;
+    PixelShaderParams->RenderTargets[0] = FRenderTargetBinding(sceneColor.Texture, ERenderTargetLoadAction::ELoad);
+   
     FPixelShaderUtils::AddFullscreenPass(
         _graphBuilder,
         GlobalShaderMap,
-        FRDGEventName(TEXT("BoundingBox")),
-        VertexShader,
-        VertexShaderParams,
+        FRDGEventName(TEXT("Draw bounding box post process")),
+        TShaderMapRef<FBoundingBoxPS>(GlobalShaderMap),
+        PixelShaderParams,
         viewRect,
         nullptr,
         nullptr,
@@ -82,36 +126,5 @@ void FBoundingBoxSceneViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder
         0,
         ERDGPassFlags::Raster
     );
-
-    FScreenPassTexture sceneColor((*_inputs.SceneTextures)->SceneColorTexture, viewRect);
-    if (!sceneColor.IsValid())
-    {
-        return;
-    }
-
-    const FScreenPassTextureViewport SceneColorTextureViewport(sceneColor);
-    TShaderMapRef<FBoundingBoxPS> PixelShader(GlobalShaderMap);
-    check(PixelShader.IsValid());
-
-    FBoundingBoxPSParams* PixelShaderParams = _graphBuilder.AllocParameters<FBoundingBoxPSParams>();
-    PixelShaderParams->viewParams = GetTextureViewportParameters(SceneColorTextureViewport);
-    PixelShaderParams->sceneColor = (*_inputs.SceneTextures)->SceneColorTexture;
-    PixelShaderParams->dataTexture = dataTexture_.Pin()->GetResource()->GetTexture2DRHI();
-	PixelShaderParams->sceneColorSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-
-    PixelShaderParams->RenderTargets[0] = FRenderTargetBinding(sceneColor.Texture, ERenderTargetLoadAction::ELoad);
-
-	FPixelShaderUtils::AddFullscreenPass(
-		_graphBuilder,
-		GlobalShaderMap,
-        FRDGEventName(TEXT("BoundingBox")),
-		PixelShader,
-		PixelShaderParams,
-		viewRect,
-		nullptr,
-		nullptr,
-		nullptr,
-		0,
-		ERDGPassFlags::Raster
-	);
+#pragma endregion
 }

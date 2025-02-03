@@ -1,13 +1,70 @@
-#include "/Engine/Public/Platform.ush"
 #include "/Engine/Private/Common.ush"
 #include "/Engine/Private/ScreenPass.ush"
-#include "/Engine/Private/PostProcessCommon.ush"
 
 SCREEN_PASS_TEXTURE_VIEWPORT(viewParams)
 
-SamplerState sceneColorSampler;
-Texture2D dataTexture;
+//final scenecolor
 Texture2D sceneColor;
+
+//sampler for final scenecolor
+SamplerState sceneColorSampler;
+
+//boundingbox stencil buffer
+Texture2D<uint2> customStencil;
+
+//how many boundingboxes we have
+int boundingBoxCount;
+
+//write buffer for boundingBoxes
+RWStructuredBuffer<float4> boundingBoxDataBuffer;
+
+uint4 MakeBoundingBoxes(int stencilID)
+{
+    uint width, height, numLevel;
+    customStencil.GetDimensions(0, width, height, numLevel);
+    
+    uint4 boundingBox = uint4(width, height, 0, 0);
+    
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            if (customStencil.Load(uint3(x, y, 0))
+                STENCIL_COMPONENT_SWIZZLE == stencilID) 
+            {
+                if (x < boundingBox.x)
+                {
+                    boundingBox.x = x;
+                }
+                if (y < boundingBox.y)
+                {
+                    boundingBox.y = y;
+                }
+                if (x > boundingBox.z)
+                {
+                    boundingBox.z = x;
+                }
+                if (y > boundingBox.w)
+                {
+                    boundingBox.w = y;
+                }
+            }
+        }
+    }
+    
+    return boundingBox;
+}
+
+[numthreads(THREADGROUPSIZE_X, THREADGROUPSIZE_Y, 1)]
+void BoundingBoxCS(uint3 dispatchThreadId : SV_DispatchThreadID,
+                    uint3 groupThreadId : SV_GroupThreadID)
+{
+    for (int i = 0; i < boundingBoxCount; i++)
+    {
+        boundingBoxDataBuffer[i] = MakeBoundingBoxes(i + 1);
+    }
+}
+
 
 float2 PosToUV(float2 _pos)
 {
@@ -28,64 +85,30 @@ float DistanceToLine(float2 _target, float2 _pointA, float2 _pointB)
     return distance(_pointA + lineABNormalized * d, _target);
 }
 
-void BoundingBoxVS(){}
-
-struct bbData
+bool IsBoundingPixel(float _distance, float2 _pos)
 {
-    float2 point1;
-    float2 point2;
-    float2 point3;
-    float2 point4;
-    float3 color;
-        
-    void init(float2 _point1, float2 _point2, float2 _point3, float2 _point4, float3 _color)
+    for (int i = 0; i < boundingBoxCount; i++)
     {
-        point1 = _point1;
-        point2 = _point2;
-        point3 = _point3;
-        point4 = _point4;
-        color = _color;
-    }
-};
-
-//Note: For better result I would extend lines outwards to create polygons and check if position is inside it.
-//      Distance check is used here only because it was faster to write.
-float4 GetPixelColor(bbData _data[255], int _arrLen, float _distance, float2 _pos)
-{
-    for (int i = 0; i < _arrLen; i++)
-    {
-        if (DistanceToLine(_pos, _data[i].point1, _data[i].point2) < _distance ||
-            DistanceToLine(_pos, _data[i].point2, _data[i].point3) < _distance ||
-            DistanceToLine(_pos, _data[i].point3, _data[i].point4) < _distance ||
-            DistanceToLine(_pos, _data[i].point4, _data[i].point1) < _distance)
+        if (DistanceToLine(_pos, float2(boundingBoxDataBuffer[i].x, boundingBoxDataBuffer[i].y), float2(boundingBoxDataBuffer[i].z, boundingBoxDataBuffer[i].y)) < _distance ||
+            DistanceToLine(_pos, float2(boundingBoxDataBuffer[i].z, boundingBoxDataBuffer[i].y), float2(boundingBoxDataBuffer[i].z, boundingBoxDataBuffer[i].w)) < _distance ||
+            DistanceToLine(_pos, float2(boundingBoxDataBuffer[i].z, boundingBoxDataBuffer[i].w), float2(boundingBoxDataBuffer[i].x, boundingBoxDataBuffer[i].w)) < _distance ||
+            DistanceToLine(_pos, float2(boundingBoxDataBuffer[i].x, boundingBoxDataBuffer[i].w), float2(boundingBoxDataBuffer[i].x, boundingBoxDataBuffer[i].y)) < _distance)
         {
-            return float4(_data[i].color, 1);
+            return true;
         }
     }
-    return float4(Texture2DSample(sceneColor, sceneColorSampler, _pos));
+    return false;
 }
 
 void BoundingBoxPS(in float4 InPosition : SV_Position,
                     out float4 OutColor : SV_Target0)
 {
-    float2 UVcoord = PosToUV(InPosition.xy);    
-    int arrLen = clamp(dataTexture[int2(0, 0)].r, 0, 255);
-    int stride = 11;
-    int beginOffset = 1;
-    bbData bbDatas[255];
+    float4 color = float4(Texture2DSample(sceneColor, sceneColorSampler, PosToUV(InPosition.xy)));
     
-    for (int i = 0; i < arrLen; i++)
+    if (IsBoundingPixel(2, InPosition.xy))
     {
-        bbData data;
-        data.init(PosToUV(float2(dataTexture[int2(beginOffset + 0 + i * stride, 0)].r, dataTexture[int2(beginOffset + 1 + i * stride, 0)].r)),
-                    PosToUV(float2(dataTexture[int2(beginOffset + 2 + i * stride, 0)].r, dataTexture[int2(beginOffset + 3 + i * stride, 0)].r)),
-                    PosToUV(float2(dataTexture[int2(beginOffset + 4 + i * stride, 0)].r, dataTexture[int2(beginOffset + 5 + i * stride, 0)].r)),
-                    PosToUV(float2(dataTexture[int2(beginOffset + 6 + i * stride, 0)].r, dataTexture[int2(beginOffset + 7 + i * stride, 0)].r)),
-                    float3(dataTexture[int2(beginOffset + 8 + i * stride, 0)].r,
-                            dataTexture[int2(beginOffset + 9 + i * stride, 0)].r,
-                            dataTexture[int2(beginOffset + 10 + i * stride, 0)].r));
-        bbDatas[i] = data;
+        color = float4(0, 1, 0, 0);
     }
     
-    OutColor = GetPixelColor(bbDatas, arrLen, 0.002, UVcoord);
+    OutColor = color;
 }

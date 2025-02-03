@@ -14,8 +14,9 @@ public class BoundingBox : ModuleRules
 															"RHI",
 															"Renderer",
 															"RenderCore",
-															"Projects"
-														});
+															"Projects",
+                                                            "GeometryCache"
+                                                        });
 
 
         PrivateDependencyModuleNames.AddRange(new string[] {  });

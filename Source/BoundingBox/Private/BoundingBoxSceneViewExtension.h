@@ -3,20 +3,25 @@
 #pragma once
 
 #include "SceneViewExtension.h"
-#include "RHI.h"
-#include "RHIResources.h"
+#include "BoundingBoxShader.h"
 
-DECLARE_GPU_STAT_NAMED_EXTERN(BoundingBoxPass, TEXT("BoundingBoxPass")) //declares name of the render pass for render debugger
+DECLARE_GPU_STAT_NAMED_EXTERN(BoundingBoxPass, TEXT("BoundingBoxPass"))
 class BOUNDINGBOX_API FBoundingBoxSceneViewExtension : public FSceneViewExtensionBase
 {
 public:
 	FBoundingBoxSceneViewExtension(const FAutoRegister& _autoRegister);
+	virtual ~FBoundingBoxSceneViewExtension() override;
 
 	virtual void SetupViewFamily(FSceneViewFamily& _viewFamily) override {};
 	virtual void SetupView(FSceneViewFamily& _viewFamily, FSceneView& _view) override {};
 	virtual void BeginRenderViewFamily(FSceneViewFamily& _viewFamily) override {};
 	virtual void PrePostProcessPass_RenderThread(FRDGBuilder& _graphBuilder, const FSceneView& _view, const FPostProcessingInputs& _inputs) override;
 
-	UPROPERTY()
-	TWeakObjectPtr<UTexture2D> dataTexture_ = nullptr;
+	bool bDrawAllowed = false;
+	int boundingBoxCount = 0;
+	TRefCountPtr<IPooledRenderTarget> computeShaderOutput;
+
+	//FRHIGPUBufferReadback* readback = nullptr; //readback pointer
+	//TArray<FVector4f> boundingBoxes = {};		 //bounding boxdata
+
 };

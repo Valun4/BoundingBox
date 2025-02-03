@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "BoundingBoxSceneViewExtension.h"
 #include "Subsystems/WorldSubsystem.h"
-#include "Kismet/GameplayStatics.h"
 #include "BoundingBoxSubsystem.generated.h"
 
 USTRUCT()
@@ -14,108 +13,39 @@ struct FBoundingBoxActor
 	GENERATED_BODY()
 
 public:
-	TWeakObjectPtr<AActor> actor_;
-	FVector origin_ = FVector::Zero();
-	FVector extent_ = FVector::Zero();
-	FRotator initialRot = FRotator::ZeroRotator;
-	TArray<FVector> bBvertices_ = {};
-	TArray<FVector2D> sSvertices_ = {};
+	AActor* actor_;
 	FLinearColor bbColor_ = FLinearColor::Green;
 
 	FBoundingBoxActor() {};
-    FBoundingBoxActor(AActor* _actor, FLinearColor _bbColor) : actor_(_actor), bbColor_(_bbColor)
+    FBoundingBoxActor(AActor* _actor, FLinearColor _bbColor, int _stencilId) : actor_(_actor), bbColor_(_bbColor)
     {
-        if (actor_.IsValid())
+        if (actor_)
         {
-			UStaticMeshComponent* comp = actor_.Pin()->GetComponentByClass<UStaticMeshComponent>();
-			FBoxSphereBounds data = comp->GetStaticMesh()->GetRenderData()->Bounds;
-
-            actor_.Pin()->GetActorBounds(false, origin_, extent_, true);
-			initialRot = actor_->GetActorRotation();
+			SetCustomStencil(_stencilId);
         }
     }
 
-	const bool IsValid() { return actor_.IsValid(); }
-
-	void UpdateBBActor()
-	{
-		if(IsValid())
-		{
-			UpdateBBVertices();
-			UpdateSSVertices();
-		}
-	}
+	const bool IsValid() { return actor_ != nullptr;; }
 
 	void Clear()
 	{
 		actor_ = nullptr;
-		origin_ = FVector::Zero();
-		extent_ = FVector::Zero();
-		bBvertices_.Empty();
-		sSvertices_.Empty();
+	}
+
+	void SetCustomStencil(int _stencilId)
+	{
+		actor_->ForEachComponent<UMeshComponent>(true, [&](UMeshComponent* component)
+		{
+			component->bRenderCustomDepth = true;
+			component->CustomDepthStencilWriteMask = ERendererStencilMask::ERSM_Default;
+			component->CustomDepthStencilValue = ++_stencilId;
+			component->MarkRenderStateDirty();
+		});
 	}
 
 	inline bool operator!=(const FBoundingBoxActor& _other) const { return actor_ != _other.actor_; }
 	inline bool operator==(const FBoundingBoxActor& _other) const { return actor_ == _other.actor_; }
 
-private:
-	//TODO: move this to Extension class instead of here so we have access to sceneview
-	//      so we can project to that instead of player controller view
-	//Also: Update to work with rotations
-	void UpdateBBVertices()
-	{
-		if(IsValid())
-		{
-			bBvertices_.Empty();
-			
-			FVector right = actor_.Pin()->GetActorRightVector();
-			FVector up = actor_.Pin()->GetActorUpVector();
-			FVector forward = actor_.Pin()->GetActorForwardVector();
-			
-			bBvertices_.Add(FVector(origin_ + right * extent_.X + forward * extent_.Y + up * extent_.Z));
-			bBvertices_.Add(FVector(origin_ + -right * extent_.X + forward * extent_.Y + up * extent_.Z));
-			bBvertices_.Add(FVector(origin_ + -right * extent_.X + -forward * extent_.Y + up * extent_.Z));
-			bBvertices_.Add(FVector(origin_ + right * extent_.X + -forward * extent_.Y + up * extent_.Z));
-
-			bBvertices_.Add(FVector(origin_ + right * extent_.X + forward * extent_.Y + -up * extent_.Z));
-			bBvertices_.Add(FVector(origin_ + -right * extent_.X + forward * extent_.Y + -up * extent_.Z));
-			bBvertices_.Add(FVector(origin_ + -right * extent_.X + -forward * extent_.Y + -up * extent_.Z));
-			bBvertices_.Add(FVector(origin_ + right * extent_.X + -forward * extent_.Y + -up * extent_.Z));
-		}
-	}
-
-	void UpdateSSVertices()
-	{
-		APlayerController* playerController = UGameplayStatics::GetPlayerController(actor_.Pin()->GetWorld() ,0);
-		sSvertices_.Init(FVector2d::Zero(), 4);
-		TArray<FVector2D> tempVertices = {};
-
-		for(auto& vertex : bBvertices_)
-		{
-			FVector2D screenPos;
-			playerController->ProjectWorldLocationToScreen(vertex, screenPos, true);
-			tempVertices.Add(screenPos);
-		}
-
-		// winding order
-		//	0 1
-		//	3 2		
-		tempVertices.Sort([](const FVector2D _a, const FVector2D _b) { return _a.X > _b.X; });
-		sSvertices_[1].X = tempVertices[0].X;
-		sSvertices_[2].X = tempVertices[0].X;
-
-		tempVertices.Sort([](const FVector2D _a, const FVector2D _b) { return _a.X < _b.X; });
-		sSvertices_[0].X = tempVertices[0].X;
-		sSvertices_[3].X = tempVertices[0].X;
-
-		tempVertices.Sort([](const FVector2D _a, const FVector2D _b) { return _a.Y > _b.Y; });
-		sSvertices_[0].Y = tempVertices[0].Y;
-		sSvertices_[1].Y = tempVertices[0].Y;
-
-		tempVertices.Sort([](const FVector2D _a, const FVector2D _b) { return _a.Y < _b.Y; });
-		sSvertices_[3].Y = tempVertices[0].Y;
-		sSvertices_[2].Y = tempVertices[0].Y;
-	}
 };
 
 UCLASS()
@@ -125,9 +55,6 @@ class BOUNDINGBOX_API UBoundingBoxSubsystem : public UTickableWorldSubsystem
 
 	UPROPERTY()
 	TArray<FBoundingBoxActor> boundingBoxActors_ = {};
-
-	UPROPERTY()
-	TObjectPtr<UTexture2D> dataTexture_ = nullptr;
 
 	TSharedPtr<FBoundingBoxSceneViewExtension, ESPMode::ThreadSafe> boundingBoxSVE_;
 
@@ -139,10 +66,9 @@ class BOUNDINGBOX_API UBoundingBoxSubsystem : public UTickableWorldSubsystem
 	UFUNCTION(BlueprintCallable, Category = "BoundingBoxSubsystem")
 	void AddNewActor(AActor* _actor, FLinearColor _bbColor);
 
-	void UpdateDataTexture();
-	
-private:
-	const uint32 maxSize_ = 100;
-	const uint32 vertexDataSize_ = 11;
+	UFUNCTION(BlueprintCallable, Category = "BoundingBoxSubsystem")
+	void StartDrawBoundingBoxes();
 
+	UFUNCTION(BlueprintCallable, Category = "BoundingBoxSubsystem")
+	void StopDrawBoundingBoxes();
 };

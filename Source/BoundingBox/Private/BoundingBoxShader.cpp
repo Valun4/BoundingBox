@@ -3,6 +3,5 @@
 
 #include "BoundingBoxShader.h"
 
-//Define Shaders
-IMPLEMENT_SHADER_TYPE(, FBoundingBoxVS, TEXT("/CustomShaders/BoundingBoxShader.usf"), TEXT("BoundingBoxVS"), SF_Vertex);
 IMPLEMENT_SHADER_TYPE(, FBoundingBoxPS, TEXT("/CustomShaders/BoundingBoxShader.usf"), TEXT("BoundingBoxPS"), SF_Pixel);
+IMPLEMENT_SHADER_TYPE(, FBoundingBoxCS, TEXT("/CustomShaders/BoundingBoxShader.usf"), TEXT("BoundingBoxCS"), SF_Compute);
